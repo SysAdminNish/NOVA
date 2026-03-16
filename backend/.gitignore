@@ -1,0 +1,21 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Uploaded captures (temp files should never be committed)
+uploads/
+*.pcap
+*.pcapng
+*.ncap
+*.cap
