@@ -95,6 +95,22 @@ python3 -m pytest tests/ -v
 | `.ncap`, `.cap` | Alternative capture formats |
 | `.txt`, `.log` | Raw SIP log dumps (Asterisk, OpenSIPS, Kamailio) |
 
+## Screenshots & UI Preview
+
+You can showcase what NOVA looks like here:
+
+- Overall dashboard view (SIP ladders, RTP charts, MOS scores)
+- Example SIP ladder diagram for a single call
+- RTP jitter/latency timeline and codec breakdown
+
+Add your images using standard Markdown syntax, for example:
+
+```markdown
+![NOVA dashboard overview](./frontend/public/images/dashboard-overview.png)
+![SIP ladder example](./frontend/public/images/sip-ladder.png)
+![RTP analysis](./frontend/public/images/rtp-analysis.png)
+```
+
 ## Quality Thresholds
 
 | Metric | Excellent | Good | Poor |
