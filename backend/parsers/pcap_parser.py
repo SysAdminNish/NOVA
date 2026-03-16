@@ -19,6 +19,56 @@ from utils.sip_codes import SIP_CODE_REASON
 from .rtp_analyser import calculate_mos, calculate_jitter_series
 
 
+_TSHARK_SEARCH_PATHS = [
+    # macOS — Wireshark.app bundle (GUI installer)
+    "/Applications/Wireshark.app/Contents/MacOS/tshark",
+    # macOS — Homebrew (Intel + Apple Silicon)
+    "/usr/local/bin/tshark",
+    "/opt/homebrew/bin/tshark",
+    # Linux
+    "/usr/bin/tshark",
+    "/usr/sbin/tshark",
+]
+
+
+def _find_tshark() -> str | None:
+    """Return the first usable tshark binary, checking PATH then known locations."""
+    import shutil as _shutil
+    import os
+
+    on_path = _shutil.which("tshark")
+    if on_path:
+        return on_path
+    for candidate in _TSHARK_SEARCH_PATHS:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _parse_timestamp(raw: str | float) -> float:
+    """
+    Convert pyshark sniff_timestamp to Unix epoch float.
+    pyshark can return either numeric strings (e.g. "1479571996.509176") or
+    ISO 8601 strings (e.g. "2016-11-26T14:53:16.509176000Z").
+    """
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    s = str(raw).strip()
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    # ISO 8601 format
+    from datetime import datetime
+
+    s = s.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt.timestamp()
+    except ValueError:
+        return 0.0
+
+
 def parse_pcap(filepath: str, filename: str = "capture.pcap") -> CaptureAnalysis:
     try:
         import pyshark
@@ -27,13 +77,13 @@ def parse_pcap(filepath: str, filename: str = "capture.pcap") -> CaptureAnalysis
             "pyshark is not installed. Run: pip install pyshark"
         )
 
-    # Verify tshark is available
-    import shutil as _shutil
-    if not _shutil.which("tshark"):
+    tshark_path = _find_tshark()
+    if not tshark_path:
         from fastapi import HTTPException
         raise HTTPException(
             503,
-            "tshark not found. Install Wireshark: https://www.wireshark.org/download.html",
+            "tshark not found. Install Wireshark from https://www.wireshark.org/download.html "
+            "(macOS: brew install --cask wireshark)",
         )
 
     try:
@@ -42,6 +92,7 @@ def parse_pcap(filepath: str, filename: str = "capture.pcap") -> CaptureAnalysis
             display_filter="sip or rtp or rtcp",
             use_json=True,
             include_raw=False,
+            tshark_path=tshark_path,
         )
     except Exception as exc:
         from fastapi import HTTPException
@@ -58,7 +109,7 @@ def parse_pcap(filepath: str, filename: str = "capture.pcap") -> CaptureAnalysis
     try:
         for pkt in cap:
             try:
-                ts = float(pkt.sniff_timestamp)
+                ts = _parse_timestamp(pkt.sniff_timestamp)
                 if first_ts is None:
                     first_ts = ts
                 last_ts = ts
@@ -104,9 +155,7 @@ def parse_pcap(filepath: str, filename: str = "capture.pcap") -> CaptureAnalysis
                         to_uri=to_uri,
                         cseq=getattr(sip, "cseq", None),
                         sdp_offer=None,
-                        raw_first_line=getattr(
-                            sip, "request_line", getattr(sip, "status_line", method)
-                        ),
+                        raw_first_line=_get_sip_first_line(sip) or method,
                     )
                     calls[call_id]["messages"].append(msg)
 
@@ -260,24 +309,47 @@ def parse_pcap(filepath: str, filename: str = "capture.pcap") -> CaptureAnalysis
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+def _get_sip_first_line(sip) -> str:
+    """Get Request-Line or Status-Line; pyshark/tshark use different names by version."""
+    for name in ("Request-Line", "request_line", "Status-Line", "status_line"):
+        val = getattr(sip, name, None)
+        if val and isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
 def _extract_sip_method(sip) -> str:
-    line = getattr(sip, "request_line", getattr(sip, "status_line", ""))
+    line = _get_sip_first_line(sip)
     if line:
-        parts = line.strip().split()
+        parts = line.split()
         if parts:
             if parts[0].startswith("SIP/"):
                 return parts[1] if len(parts) > 1 else "???"
             return parts[0]
-    return getattr(sip, "method", "UNKNOWN")
+    for name in ("method", "Method"):
+        val = getattr(sip, name, None)
+        if val and isinstance(val, str):
+            return val.strip()
+    return "UNKNOWN"
 
 
 def _get_response_code(sip) -> int | None:
-    status = getattr(sip, "status_code", None)
-    if status:
-        try:
-            return int(status)
-        except (ValueError, TypeError):
-            pass
+    for name in ("status_code", "Status-Code"):
+        val = getattr(sip, name, None)
+        if val is not None:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                pass
+    # Parse from Status-Line: "SIP/2.0 200 OK" -> 200
+    line = getattr(sip, "Status-Line", None) or getattr(sip, "status_line", None)
+    if line and isinstance(line, str):
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[0].startswith("SIP/"):
+            try:
+                return int(parts[1])
+            except (ValueError, TypeError):
+                pass
     return None
 
 

@@ -1,11 +1,11 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 from parsers.pcap_parser import parse_pcap
 from parsers.sip_log_parser import parse_sip_log
 from models.call_models import CaptureAnalysis
 import tempfile
 import os
-import shutil
 
 app = FastAPI(title="NOVA API", version="1.0.0")
 
@@ -36,12 +36,18 @@ async def upload_capture(file: UploadFile = File(...)):
         tmp.write(content)
         tmp_path = tmp.name
 
+    # pyshark (wrapping tshark) is fully synchronous and manages its own event
+    # loop internally. Running it directly inside an async FastAPI handler causes
+    # "Cannot run the event loop while another loop is running". Offloading to a
+    # thread pool avoids that conflict entirely.
     try:
+        fname = file.filename or ("sip_log.txt" if suffix in {".txt", ".log"} else "capture.pcap")
         if suffix in {".txt", ".log"}:
             with open(tmp_path, "r", errors="replace") as f:
-                result = parse_sip_log(f.read(), filename=file.filename or "sip_log.txt")
+                text = f.read()
+            result = await run_in_threadpool(parse_sip_log, text, filename=fname)
         else:
-            result = parse_pcap(tmp_path, filename=file.filename or "capture.pcap")
+            result = await run_in_threadpool(parse_pcap, tmp_path, filename=fname)
         return result
     finally:
         os.unlink(tmp_path)
