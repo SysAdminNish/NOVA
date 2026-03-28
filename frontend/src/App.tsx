@@ -6,7 +6,10 @@ import Dashboard from './pages/Dashboard';
 import LadderView from './pages/LadderView';
 import RtpStreams from './pages/RtpStreams';
 import PacketView from './pages/PacketView';
+import Quality from './pages/Quality';
+import CodecInfo from './pages/CodecInfo';
 import ProtocolGuide from './components/learn/ProtocolGuide';
+import SipGlossary from './components/learn/SipGlossary';
 
 function AppShell() {
   const uploadTriggerRef = useRef<(() => void) | null>(null);
@@ -23,9 +26,9 @@ function AppShell() {
             <Route path="/rtp" element={<RtpStreams />} />
             <Route path="/packets" element={<PacketView />} />
             <Route path="/errors" element={<Dashboard uploadTriggerRef={uploadTriggerRef} scrollTo="errors" />} />
-            <Route path="/quality" element={<RtpStreams />} />
-            <Route path="/codecs" element={<RtpStreams />} />
-            <Route path="/glossary" element={<ProtocolGuide standalone />} />
+            <Route path="/quality" element={<Quality />} />
+            <Route path="/codecs" element={<CodecInfo />} />
+            <Route path="/glossary" element={<SipGlossary standalone />} />
             <Route path="/guide" element={<ProtocolGuide standalone />} />
           </Routes>
         </main>
