@@ -53,67 +53,138 @@ def _make_rtp(
     }
 
 
+PROXY_IP = "10.100.0.1"
+
+
 def _messages(call_id: str, from_uri: str, to_uri: str, src: str, dst: str) -> list[dict]:
+    proxy = PROXY_IP
     return [
+        # 1. UAC → Proxy: INVITE (call setup begins)
         {
             "timestamp": 0.0,
             "method": "INVITE",
-            "direction": f"{src}:5060 → {dst}:5060",
-            "src_ip": src, "dst_ip": dst, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{src}:5060 → {proxy}:5060",
+            "src_ip": src, "dst_ip": proxy, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "1 INVITE", "sdp_offer": None,
             "raw_first_line": f"INVITE {to_uri} SIP/2.0",
         },
+        # 2. Proxy → UAS: INVITE (proxy forwards)
+        {
+            "timestamp": 0.0,
+            "method": "INVITE",
+            "direction": f"{proxy}:5060 → {dst}:5060",
+            "src_ip": proxy, "dst_ip": dst, "src_port": 5060, "dst_port": 5060,
+            "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
+            "cseq": "1 INVITE", "sdp_offer": None,
+            "raw_first_line": f"INVITE {to_uri} SIP/2.0",
+        },
+        # 3. Proxy → UAC: 100 Trying (proxy-generated, not forwarded from UAS)
         {
             "timestamp": 0.05,
             "method": "100",
-            "direction": f"{dst}:5060 → {src}:5060",
-            "src_ip": dst, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{proxy}:5060 → {src}:5060",
+            "src_ip": proxy, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "1 INVITE", "sdp_offer": None,
             "raw_first_line": "SIP/2.0 100 Trying",
         },
+        # 4. UAS → Proxy: 180 Ringing (UAS is alerting)
         {
             "timestamp": 0.32,
             "method": "180",
-            "direction": f"{dst}:5060 → {src}:5060",
-            "src_ip": dst, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{dst}:5060 → {proxy}:5060",
+            "src_ip": dst, "dst_ip": proxy, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "1 INVITE", "sdp_offer": None,
             "raw_first_line": "SIP/2.0 180 Ringing",
         },
+        # 5. Proxy → UAC: 180 Ringing (proxy forwards)
+        {
+            "timestamp": 0.32,
+            "method": "180",
+            "direction": f"{proxy}:5060 → {src}:5060",
+            "src_ip": proxy, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
+            "cseq": "1 INVITE", "sdp_offer": None,
+            "raw_first_line": "SIP/2.0 180 Ringing",
+        },
+        # 6. UAS → Proxy: 200 OK (call answered)
         {
             "timestamp": 2.87,
             "method": "200",
-            "direction": f"{dst}:5060 → {src}:5060",
-            "src_ip": dst, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{dst}:5060 → {proxy}:5060",
+            "src_ip": dst, "dst_ip": proxy, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "1 INVITE", "sdp_offer": None,
             "raw_first_line": "SIP/2.0 200 OK",
         },
+        # 7. Proxy → UAC: 200 OK (proxy forwards)
+        {
+            "timestamp": 2.87,
+            "method": "200",
+            "direction": f"{proxy}:5060 → {src}:5060",
+            "src_ip": proxy, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
+            "cseq": "1 INVITE", "sdp_offer": None,
+            "raw_first_line": "SIP/2.0 200 OK",
+        },
+        # 8. UAC → Proxy: ACK (UAC confirms)
         {
             "timestamp": 2.93,
             "method": "ACK",
-            "direction": f"{src}:5060 → {dst}:5060",
-            "src_ip": src, "dst_ip": dst, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{src}:5060 → {proxy}:5060",
+            "src_ip": src, "dst_ip": proxy, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "1 ACK", "sdp_offer": None,
             "raw_first_line": f"ACK {to_uri} SIP/2.0",
         },
+        # 9. Proxy → UAS: ACK (proxy forwards)
+        {
+            "timestamp": 2.93,
+            "method": "ACK",
+            "direction": f"{proxy}:5060 → {dst}:5060",
+            "src_ip": proxy, "dst_ip": dst, "src_port": 5060, "dst_port": 5060,
+            "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
+            "cseq": "1 ACK", "sdp_offer": None,
+            "raw_first_line": f"ACK {to_uri} SIP/2.0",
+        },
+        # 10. UAS → Proxy: BYE (UAS ends the call)
         {
             "timestamp": 35.12,
             "method": "BYE",
-            "direction": f"{src}:5060 → {dst}:5060",
-            "src_ip": src, "dst_ip": dst, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{dst}:5060 → {proxy}:5060",
+            "src_ip": dst, "dst_ip": proxy, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "2 BYE", "sdp_offer": None,
-            "raw_first_line": f"BYE {to_uri} SIP/2.0",
+            "raw_first_line": f"BYE {from_uri} SIP/2.0",
         },
+        # 11. Proxy → UAC: BYE (proxy forwards)
+        {
+            "timestamp": 35.12,
+            "method": "BYE",
+            "direction": f"{proxy}:5060 → {src}:5060",
+            "src_ip": proxy, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
+            "cseq": "2 BYE", "sdp_offer": None,
+            "raw_first_line": f"BYE {from_uri} SIP/2.0",
+        },
+        # 12. UAC → Proxy: 200 OK (UAC acknowledges BYE)
         {
             "timestamp": 35.18,
             "method": "200",
-            "direction": f"{dst}:5060 → {src}:5060",
-            "src_ip": dst, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{src}:5060 → {proxy}:5060",
+            "src_ip": src, "dst_ip": proxy, "src_port": 5060, "dst_port": 5060,
+            "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
+            "cseq": "2 BYE", "sdp_offer": None,
+            "raw_first_line": "SIP/2.0 200 OK",
+        },
+        # 13. Proxy → UAS: 200 OK (proxy forwards)
+        {
+            "timestamp": 35.18,
+            "method": "200",
+            "direction": f"{proxy}:5060 → {dst}:5060",
+            "src_ip": proxy, "dst_ip": dst, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "2 BYE", "sdp_offer": None,
             "raw_first_line": "SIP/2.0 200 OK",
@@ -122,30 +193,54 @@ def _messages(call_id: str, from_uri: str, to_uri: str, src: str, dst: str) -> l
 
 
 def _failed_messages(call_id: str, from_uri: str, to_uri: str, src: str, dst: str, code: int, reason: str) -> list[dict]:
+    proxy = PROXY_IP
     return [
+        # 1. UAC → Proxy: INVITE
         {
             "timestamp": 0.0,
             "method": "INVITE",
-            "direction": f"{src}:5060 → {dst}:5060",
-            "src_ip": src, "dst_ip": dst, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{src}:5060 → {proxy}:5060",
+            "src_ip": src, "dst_ip": proxy, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "1 INVITE", "sdp_offer": None,
             "raw_first_line": f"INVITE {to_uri} SIP/2.0",
         },
+        # 2. Proxy → UAS: INVITE
+        {
+            "timestamp": 0.0,
+            "method": "INVITE",
+            "direction": f"{proxy}:5060 → {dst}:5060",
+            "src_ip": proxy, "dst_ip": dst, "src_port": 5060, "dst_port": 5060,
+            "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
+            "cseq": "1 INVITE", "sdp_offer": None,
+            "raw_first_line": f"INVITE {to_uri} SIP/2.0",
+        },
+        # 3. Proxy → UAC: 100 Trying (proxy-generated)
         {
             "timestamp": 0.04,
             "method": "100",
-            "direction": f"{dst}:5060 → {src}:5060",
-            "src_ip": dst, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{proxy}:5060 → {src}:5060",
+            "src_ip": proxy, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "1 INVITE", "sdp_offer": None,
             "raw_first_line": "SIP/2.0 100 Trying",
         },
+        # 4. UAS → Proxy: error response
         {
             "timestamp": 0.51,
             "method": str(code),
-            "direction": f"{dst}:5060 → {src}:5060",
-            "src_ip": dst, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
+            "direction": f"{dst}:5060 → {proxy}:5060",
+            "src_ip": dst, "dst_ip": proxy, "src_port": 5060, "dst_port": 5060,
+            "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
+            "cseq": "1 INVITE", "sdp_offer": None,
+            "raw_first_line": f"SIP/2.0 {code} {reason}",
+        },
+        # 5. Proxy → UAC: error response (forwarded)
+        {
+            "timestamp": 0.51,
+            "method": str(code),
+            "direction": f"{proxy}:5060 → {src}:5060",
+            "src_ip": proxy, "dst_ip": src, "src_port": 5060, "dst_port": 5060,
             "call_id": call_id, "from_uri": from_uri, "to_uri": to_uri,
             "cseq": "1 INVITE", "sdp_offer": None,
             "raw_first_line": f"SIP/2.0 {code} {reason}",
@@ -159,6 +254,10 @@ rtp3 = _make_rtp("0xC3D4E5F6", "10.0.0.5", "10.0.0.6", 20000, 20001, 18, "G.729"
 rtp4 = _make_rtp("0xD4E5F6A7", "10.0.0.6", "10.0.0.5", 20001, 20000, 18, "G.729", 873, 17.5, 11.9, 0.7)
 rtp5 = _make_rtp("0xE5F6A7B8", "172.16.0.1", "172.16.0.2", 18000, 18001, 8, "G.711a", 2500, 50.0, 6.2, 0.1)
 rtp6 = _make_rtp("0xF6A7B8C9", "172.16.0.2", "172.16.0.1", 18001, 18000, 8, "G.711a", 2498, 50.0, 6.8, 0.1)
+rtp7 = _make_rtp("0xA7B8C9D0", "192.168.1.30", "192.168.1.40", 22000, 22001, 0, "G.711u", 1275, 25.5, 9.7, 0.4)
+rtp8 = _make_rtp("0xB8C9D0E1", "192.168.1.40", "192.168.1.30", 22001, 22000, 0, "G.711u", 1273, 25.5, 10.2, 0.5)
+rtp9 = _make_rtp("0xC9D0E1F2", "10.10.0.1", "10.10.0.2", 24000, 24001, 9, "G.722", 2935, 58.7, 7.1, 0.2)
+rtp10 = _make_rtp("0xD0E1F2A3", "10.10.0.2", "10.10.0.1", 24001, 24000, 9, "G.722", 2933, 58.7, 7.4, 0.2)
 
 DEMO_ANALYSIS = {
     "stats": {
@@ -241,7 +340,7 @@ DEMO_ANALYSIS = {
             "avg_latency_ms": 44.0,
             "packet_loss_pct": 0.4,
             "messages": _messages("b9d3e7@192.168.1.30", "sip:grace@pbx.local", "sip:henry@pbx.local", "192.168.1.30", "192.168.1.40"),
-            "rtp_streams": [],
+            "rtp_streams": [rtp7, rtp8],
         },
         # Call 5
         {
@@ -258,7 +357,7 @@ DEMO_ANALYSIS = {
             "avg_latency_ms": 40.0,
             "packet_loss_pct": 0.2,
             "messages": _messages("e4f6a2@10.10.0.1", "sip:ivan@sip.example.com", "sip:judy@sip.example.com", "10.10.0.1", "10.10.0.2"),
-            "rtp_streams": [],
+            "rtp_streams": [rtp9, rtp10],
         },
         # Call 6 — FAILED (486 Busy Here)
         {

@@ -32,29 +32,36 @@ interface SipLadderProps {
   onMessageClick?: (msg: SipMessage) => void;
 }
 
-function inferArrow(msg: SipMessage, idx: number): { from: number; to: number } {
-  const m = msg.method.toUpperCase();
-  if (['INVITE', 'REGISTER', 'ACK', 'BYE', 'CANCEL', 'OPTIONS', 'SUBSCRIBE', 'NOTIFY', 'PRACK'].includes(m)) {
-    // Request: UAC → proxy (even) or proxy → UAS (odd pass-through)
-    return idx % 2 === 0
-      ? { from: COLUMN_X.uac, to: COLUMN_X.proxy }
-      : { from: COLUMN_X.proxy, to: COLUMN_X.uas };
-  }
-  if (!isNaN(Number(m))) {
-    // Response: proxy → UAC (even) or UAS → proxy (odd)
-    return idx % 2 === 0
-      ? { from: COLUMN_X.proxy, to: COLUMN_X.uac }
-      : { from: COLUMN_X.uas, to: COLUMN_X.proxy };
-  }
-  return { from: COLUMN_X.uac, to: COLUMN_X.proxy };
+function getColumnIps(messages: SipMessage[]): { uacIp: string; proxyIp: string; uasIp: string } {
+  const uacIp = messages[0]?.src_ip ?? '';
+  const proxyIp = messages[0]?.dst_ip ?? '';
+  const allIps = new Set(messages.flatMap((m) => [m.src_ip, m.dst_ip]));
+  allIps.delete(uacIp);
+  allIps.delete(proxyIp);
+  const uasIp = [...allIps][0] ?? '';
+  return { uacIp, proxyIp, uasIp };
+}
+
+function ipToColumnX(
+  ip: string,
+  uacIp: string,
+  proxyIp: string,
+  uasIp: string,
+): number {
+  if (ip === uacIp) return COLUMN_X.uac;
+  if (ip === proxyIp) return COLUMN_X.proxy;
+  if (ip === uasIp) return COLUMN_X.uas;
+  return COLUMN_X.proxy;
 }
 
 export default function SipLadder({ messages, rtp_streams, onMessageClick }: SipLadderProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [selected, setSelected] = useState<SipMessage | null>(null);
 
-  // Insert RTP band between ACK and BYE
-  const ackIdx = messages.findIndex((m) => m.method.toUpperCase() === 'ACK');
+  const { uacIp, proxyIp, uasIp } = getColumnIps(messages);
+
+  // Insert RTP band between last ACK and first BYE
+  const ackIdx = messages.findLastIndex((m) => m.method.toUpperCase() === 'ACK');
   const showRtp = rtp_streams.length > 0 && ackIdx >= 0;
 
   const rows: Array<{ type: 'sip'; msg: SipMessage; origIdx: number } | { type: 'rtp' }> = [];
@@ -96,24 +103,27 @@ export default function SipLadder({ messages, rtp_streams, onMessageClick }: Sip
         style={{ fontFamily: 'inherit', minWidth: 540 }}
       >
         <defs>
-          <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-            <path d="M0,0 L0,6 L8,3 z" fill="currentColor" />
-          </marker>
-          {Object.entries(METHOD_COLORS).map(([method, color]) => (
-            <marker
-              key={method}
-              id={`arrow-${method.replace(/[^a-zA-Z0-9]/g, '_')}`}
-              markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"
-            >
-              <path d="M0,0 L0,6 L8,3 z" fill={color} />
-            </marker>
-          ))}
+          {Object.entries(METHOD_COLORS).flatMap(([method, color]) => {
+            const base = method.replace(/[^a-zA-Z0-9]/g, '_');
+            return [
+              // Right-pointing (→)
+              <marker key={`${method}-r`} id={`arrow-${base}-r`}
+                markerWidth="8" markerHeight="6" refX="6" refY="3" orient="0">
+                <path d="M0,0 L0,6 L8,3 z" fill={color} />
+              </marker>,
+              // Left-pointing (←)
+              <marker key={`${method}-l`} id={`arrow-${base}-l`}
+                markerWidth="8" markerHeight="6" refX="2" refY="3" orient="0">
+                <path d="M8,0 L8,6 L0,3 z" fill={color} />
+              </marker>,
+            ];
+          })}
         </defs>
 
         {/* Column headers */}
-        <ColumnHeader x={COLUMN_X.uac} label="UAC" ip={messages[0]?.src_ip} />
-        <ColumnHeader x={COLUMN_X.proxy} label="SIP Proxy" />
-        <ColumnHeader x={COLUMN_X.uas} label="UAS" ip={messages[0]?.dst_ip} />
+        <ColumnHeader x={COLUMN_X.uac} label="UAC" ip={uacIp} />
+        <ColumnHeader x={COLUMN_X.proxy} label="SIP Proxy" ip={proxyIp} />
+        <ColumnHeader x={COLUMN_X.uas} label="UAS" ip={uasIp} />
 
         {/* Lifelines */}
         {[COLUMN_X.uac, COLUMN_X.proxy, COLUMN_X.uas].map((x) => (
@@ -168,13 +178,14 @@ export default function SipLadder({ messages, rtp_streams, onMessageClick }: Sip
             );
           }
 
-          const { msg, origIdx } = row;
+          const { msg } = row;
           const color = METHOD_COLORS[msg.method.toUpperCase()] ?? '#5a7a9a';
-          const { from, to } = inferArrow(msg, origIdx);
+          const from = ipToColumnX(msg.src_ip, uacIp, proxyIp, uasIp);
+          const to = ipToColumnX(msg.dst_ip, uacIp, proxyIp, uasIp);
           const isHovered = hoveredIdx === rowIdx;
           const isSelected = selected?.timestamp === msg.timestamp && selected?.method === msg.method;
           const dir = to > from ? 1 : -1;
-          const arrowId = `arrow-${msg.method.toUpperCase().replace(/[^a-zA-Z0-9]/g, '_')}`;
+          const arrowId = `arrow-${msg.method.toUpperCase().replace(/[^a-zA-Z0-9]/g, '_')}-${dir > 0 ? 'r' : 'l'}`;
           const labelX = (from + to) / 2;
           const labelW = 72;
 
